@@ -1,12 +1,7 @@
 {
     "name": "honed-api",
     "version": "1.0.0",
-    "type": "module",
-    "scripts": {
-      "dev": "vercel dev"
-    },
     "dependencies": {
-      "googleapis": "^144.0.0",
-      "dotenv": "^16.4.5",
+      "googleapis": "^144.0.0"
     }
   }
