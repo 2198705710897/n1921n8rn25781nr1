@@ -7,7 +7,11 @@ export default async function handler(req, res) {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-      const { endpoint } = req.query;
+      // Get raw query string and extract endpoint value
+      const rawQuery = req.url.split('?')[1];
+      const endpointMatch = rawQuery?.match(/endpoint=([^&]+)/);
+      const endpoint = endpointMatch ? decodeURIComponent(endpointMatch[1]) : null;
+
       if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
 
       const apiKey = process.env.TWITTER_API_KEY;
