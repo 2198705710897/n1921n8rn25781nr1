@@ -1,17 +1,42 @@
 // Vercel serverless function for license validation with device binding
 // Uses Supabase for automatic device registration
+// Returns signed JWT token for server-side API enforcement
 
 import { createClient } from '@supabase/supabase-js';
+import { SignJWT, jwtVerify } from 'jose';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const revokedKeys = process.env.REVOKED_KEYS ? process.env.REVOKED_KEYS.split(',') : [];
 const masterKillSwitch = process.env.MASTER_KILL_SWITCH === 'true';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
-// Valid license keys (you would store this securely or use a database)
 const VALID_LICENSE_KEYS = process.env.LICENSE_KEYS ? process.env.LICENSE_KEYS.split(',') : [];
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Create a secret key for JWT signing
+const secretKey = new TextEncoder().encode(JWT_SECRET);
+
+/**
+ * Generate a signed JWT token for validated license
+ * @param {string} licenseKey - The validated license key
+ * @param {string} deviceId - The device ID
+ * @returns {Promise<string>} Signed JWT token
+ */
+async function generateToken(licenseKey, deviceId) {
+  const token = await new SignJWT({
+    licenseKey: licenseKey.substring(0, 8) + '...', // Partial key for logging
+    deviceId: deviceId,
+    purpose: 'honed-license'
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('5m') // Token expires in 5 minutes
+    .sign(secretKey);
+
+  return token;
+}
 
 export default async function handler(req, res) {
   // Only allow GET requests
@@ -20,11 +45,6 @@ export default async function handler(req, res) {
   }
 
   const { key, deviceId } = req.query;
-
-  // Debug logging
-  console.log('[Validate] LICENSE_KEYS env:', process.env.LICENSE_KEYS);
-  console.log('[Validate] VALID_LICENSE_KEYS array:', VALID_LICENSE_KEYS);
-  console.log('[Validate] Checking key:', key);
 
   // Check master kill switch
   if (masterKillSwitch) {
@@ -78,12 +98,14 @@ export default async function handler(req, res) {
     if (existingBinding) {
       // Key already has a device bound - check if it matches
       if (existingBinding.device_id === deviceId) {
-        // Same device - valid
+        // Same device - valid, generate token
+        const token = await generateToken(key, deviceId);
         return res.json({
           valid: true,
           reason: 'VALID',
           message: 'License validated successfully.',
-          deviceId: deviceId
+          deviceId: deviceId,
+          token: token
         });
       } else {
         // Different device - key already bound to another device
@@ -107,13 +129,15 @@ export default async function handler(req, res) {
         throw insertError;
       }
 
-      // Successfully registered new device
+      // Successfully registered new device, generate token
+      const token = await generateToken(key, deviceId);
       return res.json({
         valid: true,
         reason: 'VALID',
         message: 'License validated successfully. Device registered.',
         deviceId: deviceId,
-        newDevice: true
+        newDevice: true,
+        token: token
       });
     }
 
@@ -124,5 +148,22 @@ export default async function handler(req, res) {
       reason: 'ERROR',
       message: 'Validation error. Please try again later.'
     });
+  }
+}
+
+/**
+ * Verify JWT token (exported for use in other API endpoints)
+ * @param {string} token - JWT token to verify
+ * @returns {Promise<object|null>} Decoded payload if valid, null if invalid
+ */
+export async function verifyToken(token) {
+  try {
+    const { payload } = await jwtVerify(token, secretKey);
+    if (payload.purpose !== 'honed-license') {
+      return null;
+    }
+    return payload;
+  } catch (error) {
+    return null;
   }
 }
