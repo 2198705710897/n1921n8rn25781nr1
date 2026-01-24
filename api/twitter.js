@@ -21,10 +21,27 @@ async function verifyToken(token) {
 }
 
 export default async function handler(req, res) {
+  // Set CORS headers FIRST
   const origin = req.headers.origin;
   const extensionId = process.env.EXTENSION_ID;
   const allowedOrigin = `chrome-extension://${extensionId}`;
 
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Only allow your extension
   if (!origin || origin !== allowedOrigin) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -41,13 +58,6 @@ export default async function handler(req, res) {
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
   }
-
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
     const { userName } = req.query;
