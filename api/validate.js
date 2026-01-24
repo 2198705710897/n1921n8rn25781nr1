@@ -1,5 +1,5 @@
 // Vercel serverless function for license validation with device binding
-// Uses Supabase for automatic device registration
+// Uses Supabase for automatic device registration and license key management
 // Returns signed JWT token for server-side API enforcement
 
 import { createClient } from '@supabase/supabase-js';
@@ -7,63 +7,48 @@ import { SignJWT, jwtVerify } from 'jose';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
-const revokedKeys = process.env.REVOKED_KEYS ? process.env.REVOKED_KEYS.split(',') : [];
 const masterKillSwitch = process.env.MASTER_KILL_SWITCH === 'true';
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
-const VALID_LICENSE_KEYS = process.env.LICENSE_KEYS ? process.env.LICENSE_KEYS.split(',') : [];
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Create a secret key for JWT signing
 const secretKey = new TextEncoder().encode(JWT_SECRET);
 
-/**
- * Generate a signed JWT token for validated license
- * @param {string} licenseKey - The validated license key
- * @param {string} deviceId - The device ID
- * @returns {Promise<string>} Signed JWT token
- */
 async function generateToken(licenseKey, deviceId) {
   const token = await new SignJWT({
-    licenseKey: licenseKey.substring(0, 8) + '...', // Partial key for logging
+    licenseKey: licenseKey.substring(0, 8) + '...',
     deviceId: deviceId,
     purpose: 'honed-license'
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('5m') // Token expires in 5 minutes
+    .setExpirationTime('5m')
     .sign(secretKey);
 
   return token;
 }
 
 export default async function handler(req, res) {
-  // Add CORS headers
   const origin = req.headers.origin;
   const extensionId = process.env.EXTENSION_ID;
   const allowedOrigin = `chrome-extension://${extensionId}`;
 
-  // Allow requests from the extension
   if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Only allow GET requests
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const { key, deviceId } = req.query;
 
-  // Check master kill switch
   if (masterKillSwitch) {
     return res.json({
       valid: false,
@@ -72,7 +57,6 @@ export default async function handler(req, res) {
     });
   }
 
-  // Validate required parameters
   if (!key || !deviceId) {
     return res.status(400).json({
       valid: false,
@@ -81,26 +65,37 @@ export default async function handler(req, res) {
     });
   }
 
-  // Check if key is revoked
-  if (revokedKeys.includes(key)) {
-    return res.json({
-      valid: false,
-      reason: 'REVOKED',
-      message: 'License key has been revoked.'
-    });
-  }
-
-  // Check if license key is valid (your whitelist)
-  if (!VALID_LICENSE_KEYS.includes(key)) {
-    return res.json({
-      valid: false,
-      reason: 'INVALID',
-      message: 'Invalid license key.'
-    });
-  }
-
   try {
-    // Check if this key already has a device bound
+    // Check if license key exists and is not revoked in Supabase
+    const { data: licenseData, error: licenseError } = await supabase
+      .from('license_keys')
+      .select('*')
+      .eq('key', key)
+      .single();
+
+    if (licenseError && licenseError.code !== 'PGRST116') {
+      throw licenseError;
+    }
+
+    // Check if key exists
+    if (!licenseData) {
+      return res.json({
+        valid: false,
+        reason: 'INVALID',
+        message: 'Invalid license key.'
+      });
+    }
+
+    // Check if key is revoked
+    if (licenseData.revoked) {
+      return res.json({
+        valid: false,
+        reason: 'REVOKED',
+        message: 'License key has been revoked.'
+      });
+    }
+
+    // Check device binding
     const { data: existingBinding, error: fetchError } = await supabase
       .from('device_bindings')
       .select('*')
@@ -108,14 +103,11 @@ export default async function handler(req, res) {
       .single();
 
     if (fetchError && fetchError.code !== 'PGRST116') {
-      // PGRST116 means no rows found, which is expected for new keys
       throw fetchError;
     }
 
     if (existingBinding) {
-      // Key already has a device bound - check if it matches
       if (existingBinding.device_id === deviceId) {
-        // Same device - valid, generate token
         const token = await generateToken(key, deviceId);
         return res.json({
           valid: true,
@@ -125,7 +117,6 @@ export default async function handler(req, res) {
           token: token
         });
       } else {
-        // Different device - key already bound to another device
         return res.json({
           valid: false,
           reason: 'DEVICE_MISMATCH',
@@ -133,7 +124,6 @@ export default async function handler(req, res) {
         });
       }
     } else {
-      // No device bound yet - automatically register this device
       const { error: insertError } = await supabase
         .from('device_bindings')
         .insert({
@@ -146,7 +136,6 @@ export default async function handler(req, res) {
         throw insertError;
       }
 
-      // Successfully registered new device, generate token
       const token = await generateToken(key, deviceId);
       return res.json({
         valid: true,
@@ -165,22 +154,5 @@ export default async function handler(req, res) {
       reason: 'ERROR',
       message: 'Validation error. Please try again later.'
     });
-  }
-}
-
-/**
- * Verify JWT token (exported for use in other API endpoints)
- * @param {string} token - JWT token to verify
- * @returns {Promise<object|null>} Decoded payload if valid, null if invalid
- */
-export async function verifyToken(token) {
-  try {
-    const { payload } = await jwtVerify(token, secretKey);
-    if (payload.purpose !== 'honed-license') {
-      return null;
-    }
-    return payload;
-  } catch (error) {
-    return null;
   }
 }
