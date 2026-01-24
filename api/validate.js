@@ -1,3 +1,6 @@
+// Vercel serverless function for license validation with device binding
+// Uses Supabase for automatic device registration
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -17,6 +20,11 @@ export default async function handler(req, res) {
   }
 
   const { key, deviceId } = req.query;
+
+  // Debug logging
+  console.log('[Validate] LICENSE_KEYS env:', process.env.LICENSE_KEYS);
+  console.log('[Validate] VALID_LICENSE_KEYS array:', VALID_LICENSE_KEYS);
+  console.log('[Validate] Checking key:', key);
 
   // Check master kill switch
   if (masterKillSwitch) {
