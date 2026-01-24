@@ -1,5 +1,13 @@
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    const extensionId = process.env.EXTENSION_ID;
+    const allowedOrigin = `chrome-extension://${extensionId}`;
+
+    if (!origin || origin !== allowedOrigin) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -8,7 +16,6 @@ export default async function handler(req, res) {
 
     try {
       const { communityId } = req.query;
-
       if (!communityId) return res.status(400).json({ error: 'Missing communityId' });
 
       const apiKey = process.env.TWITTER_API_KEY;
