@@ -7,42 +7,66 @@ export default async function handler(req, res) {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-      const { key } = req.query;
+      const { key, deviceId } = req.query;
+
       if (!key) return res.status(400).json({ error: 'Missing key' });
+      if (!deviceId) return res.status(400).json({ error: 'Missing deviceId' });
 
-      // Get valid keys from environment (comma-separated)
-      const validKeys = process.env.VALID_LICENSE_KEYS?.split(',') || [];
-      const revokedKeys = process.env.REVOKED_KEYS?.split(',') || [];
-      const masterKillSwitch = process.env.MASTER_KILL_SWITCH === 'true';
+      // Get device bindings
+      const deviceBindings = process.env.DEVICE_BINDINGS || '';
+      const bindings = {};
 
-      // Check master kill switch
-      if (masterKillSwitch) {
-        return res.status(200).json({
-          valid: false,
-          reason: 'MAINTENANCE',
-          message: 'Extension is temporarily disabled for maintenance. Please check back later.'
+      if (deviceBindings) {
+        deviceBindings.split(',').forEach(binding => {
+          const [k, d] = binding.split(':');
+          if (k && d) bindings[k] = d;
         });
       }
 
-      // Check if key is revoked
+      // Check kill switch
+      if (process.env.MASTER_KILL_SWITCH === 'true') {
+        return res.status(200).json({
+          valid: false,
+          reason: 'MAINTENANCE',
+          message: 'Extension temporarily disabled.'
+        });
+      }
+
+      // Check if revoked
+      const revokedKeys = process.env.REVOKED_KEYS?.split(',') || [];
       if (revokedKeys.includes(key)) {
         return res.status(200).json({
           valid: false,
           reason: 'REVOKED',
-          message: 'Your license has been revoked. Please contact support.'
+          message: 'License revoked.'
         });
       }
 
-      // Check if key is valid
-      const isValid = validKeys.includes(key);
+      // Check if key exists
+      const boundDeviceId = bindings[key];
 
-      // Log usage (you can add Vercel analytics or a database here)
-      console.log(`Validation check: ${key.substring(0, 8)}... - Valid: ${isValid} - ${new Date().toISOString()}`);
+      if (!boundDeviceId) {
+        return res.status(200).json({
+          valid: false,
+          reason: 'INVALID',
+          message: 'Invalid license key.'
+        });
+      }
+
+      // Check device match
+      if (boundDeviceId !== deviceId) {
+        return res.status(200).json({
+          valid: false,
+          reason: 'DEVICE_MISMATCH',
+          message: 'License activated on different device.'
+        });
+      }
+
+      console.log(`[License] Valid: ${key.substring(0, 8)}... device: ${deviceId}`);
 
       return res.status(200).json({
-        valid: isValid,
-        reason: isValid ? 'VALID' : 'INVALID',
-        message: isValid ? 'License valid' : 'Invalid license key. Please purchase a license to use this extension.'
+        valid: true,
+        reason: 'VALID'
       });
 
     } catch (error) {
