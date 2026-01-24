@@ -39,6 +39,23 @@ async function generateToken(licenseKey, deviceId) {
 }
 
 export default async function handler(req, res) {
+  // Add CORS headers
+  const origin = req.headers.origin;
+  const extensionId = process.env.EXTENSION_ID;
+  const allowedOrigin = `chrome-extension://${extensionId}`;
+
+  // Allow requests from the extension
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // Only allow GET requests
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
