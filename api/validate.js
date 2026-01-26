@@ -108,6 +108,7 @@ export default async function handler(req, res) {
     }
 
     // Check for update notifications
+    console.log('[Validate API] Fetching update notifications...');
     const { data: notification, error: notificationError } = await supabase
       .from('update_notifications')
       .select('*')
@@ -115,6 +116,9 @@ export default async function handler(req, res) {
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
+
+    console.log('[Validate API] Notification result:', notification);
+    console.log('[Validate API] Notification error:', notificationError);
 
     if (notificationError && notificationError.code !== 'PGRST116') {
       console.error('[Validate API] Notification fetch error:', notificationError);
