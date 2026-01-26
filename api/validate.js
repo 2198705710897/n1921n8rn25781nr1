@@ -29,14 +29,15 @@ async function generateToken(licenseKey, deviceId) {
 }
 
 export default async function handler(req, res) {
+  // Set CORS headers FIRST - allow any chrome-extension origin
   const origin = req.headers.origin;
-  const extensionId = process.env.EXTENSION_ID;
-  const allowedOrigin = `chrome-extension://${extensionId}`;
 
-  if (origin) {
+  // Allow chrome-extension origins
+  if (origin && (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -106,16 +107,43 @@ export default async function handler(req, res) {
       throw fetchError;
     }
 
+    // Check for update notifications
+    const { data: notification, error: notificationError } = await supabase
+      .from('update_notifications')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (notificationError && notificationError.code !== 'PGRST116') {
+      console.error('[Validate API] Notification fetch error:', notificationError);
+    }
+
+    // Helper function to build response with optional notification
+    function buildResponse(baseResponse) {
+      if (notification && notification.is_active) {
+        return {
+          ...baseResponse,
+          updateNotification: {
+            active: true,
+            message: notification.message
+          }
+        };
+      }
+      return baseResponse;
+    }
+
     if (existingBinding) {
       if (existingBinding.device_id === deviceId) {
         const token = await generateToken(key, deviceId);
-        return res.json({
+        return res.json(buildResponse({
           valid: true,
           reason: 'VALID',
           message: 'License validated successfully.',
           deviceId: deviceId,
           token: token
-        });
+        }));
       } else {
         return res.json({
           valid: false,
@@ -137,14 +165,14 @@ export default async function handler(req, res) {
       }
 
       const token = await generateToken(key, deviceId);
-      return res.json({
+      return res.json(buildResponse({
         valid: true,
         reason: 'VALID',
         message: 'License validated successfully. Device registered.',
         deviceId: deviceId,
         newDevice: true,
         token: token
-      });
+      }));
     }
 
   } catch (error) {
