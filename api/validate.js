@@ -29,11 +29,17 @@ async function generateToken(licenseKey, deviceId) {
 }
 
 export default async function handler(req, res) {
-  // Set CORS headers FIRST - allow any chrome-extension origin
+  // Set CORS headers FIRST - allow extension and web origins
   const origin = req.headers.origin;
 
-  // Allow chrome-extension origins
-  if (origin && (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))) {
+  // Allow chrome-extension origins and approved web origins
+  const allowedOrigins = [
+    origin && (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://')),
+    origin === 'https://trade.padre.gg',
+    origin === 'https://axiom.trade'
+  ];
+
+  if (allowedOrigins.some(Boolean)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
