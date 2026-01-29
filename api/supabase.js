@@ -2,8 +2,8 @@
 // Replaces Google Sheets as the primary data source
 // JWT authentication required
 
-import { createClient } from '@supabase/supabase-js';
-import { jwtVerify } from 'jose';
+const { createClient } = require('@supabase/supabase-js');
+const { jwtVerify } = require('jose');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
@@ -83,7 +83,7 @@ function formatMigrateTime(seconds) {
 function formatTimestamp(timestamp) {
   if (!timestamp) return '';
 
-  // If it's already an ISO format string (contains 'T' or '-'), return as-is
+  // If it's already an ISO format string (contains 'T' or '-'), return it as-is
   if (typeof timestamp === 'string' && (timestamp.includes('T') || timestamp.includes('-'))) {
     return timestamp;
   }
@@ -97,25 +97,6 @@ function formatTimestamp(timestamp) {
   }
 
   return '';
-}
-  if (!unixTimestamp) return '';
-
-  const now = Math.floor(Date.now() / 1000);
-  const diff = now - unixTimestamp;
-
-  const days = Math.floor(diff / 86400);
-  const hours = Math.floor((diff % 86400) / 3600);
-  const minutes = Math.floor((diff % 3600) / 60);
-
-  if (days > 0) {
-    return `${days}d ago`;
-  } else if (hours > 0) {
-    return `${hours}h ago`;
-  } else if (minutes > 0) {
-    return `${minutes}m ago`;
-  } else {
-    return 'Just now';
-  }
 }
 
 /**
@@ -187,7 +168,7 @@ function transformTokensToSheetsFormat(tokens) {
   return [header, ...rows];
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Set CORS headers FIRST - allow chrome-extension origins
   const origin = req.headers.origin;
 
@@ -303,4 +284,4 @@ export default async function handler(req, res) {
       error: error.message
     });
   }
-}
+};
