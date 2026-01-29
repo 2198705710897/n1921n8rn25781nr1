@@ -56,6 +56,45 @@ function calculateTokenAge(unixTimestamp) {
 }
 
 /**
+ * Format migrate time from seconds to human readable format
+ * @param {number} seconds - Average seconds to migration
+ * @returns {string} Formatted time string (e.g., "1h 23m", "45m", "2h 15m")
+ */
+function formatMigrateTime(seconds) {
+  if (!seconds || seconds === 0) return '';
+
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m`;
+  } else {
+    return '< 1m';
+  }
+}
+  if (!unixTimestamp) return '';
+
+  const now = Math.floor(Date.now() / 1000);
+  const diff = now - unixTimestamp;
+
+  const days = Math.floor(diff / 86400);
+  const hours = Math.floor((diff % 86400) / 3600);
+  const minutes = Math.floor((diff % 3600) / 60);
+
+  if (days > 0) {
+    return `${days}d ago`;
+  } else if (hours > 0) {
+    return `${hours}h ago`;
+  } else if (minutes > 0) {
+    return `${minutes}m ago`;
+  } else {
+    return 'Just now';
+  }
+}
+
+/**
  * Transform Supabase admins data to Sheets format (2D array)
  * @param {Array} admins - Admins from Supabase
  * @returns {Array} 2D array matching Sheets format
@@ -68,7 +107,8 @@ function transformAdminsToSheetsFormat(admins) {
   const header = ['admin_username', 'total_rating', 'tokens_score_0', 'tokens_score_1', 'tokens_score_2', 'tokens_score_3', 'tokens_score_4', 'tokens_score_5', 'tokens_score_6', 'total_tokens_created', 'winrate', 'avg_migrate_time', 'last_active', 'last_updated'];
 
   const rows = admins.map(admin => [
-    admin.admin_username || '',
+    // Convert admin_username to lowercase to match parsing logic
+    (admin.admin_username || '').toLowerCase().trim(),
     admin.total_rating?.toString() || '0',
     admin.tokens_score_0?.toString() || '0',
     admin.tokens_score_1?.toString() || '0',
@@ -80,9 +120,11 @@ function transformAdminsToSheetsFormat(admins) {
     admin.total_tokens_created?.toString() || '0',
     // Convert winrate from decimal (0-1) to percentage (0-100)
     ((admin.winrate || 0) * 100).toString(),
-    admin.avg_migrate_time || '',
-    admin.last_active || '',
-    admin.last_updated || ''
+    // avg_migrate_time is in seconds, convert to human readable format
+    admin.avg_migrate_time ? formatMigrateTime(admin.avg_migrate_time) : '',
+    // Convert Unix timestamp to ISO date string
+    admin.last_active ? new Date(admin.last_active * 1000).toISOString() : '',
+    admin.last_updated ? new Date(admin.last_updated * 1000).toISOString() : ''
   ]);
 
   return [header, ...rows];
@@ -101,7 +143,8 @@ function transformTokensToSheetsFormat(tokens) {
   const header = ['admin_username', 'base_token', 'token_name', 'token_symbol', 'community_link', 'token_age', 'market_cap', 'ath_market_cap', 'token_score'];
 
   const rows = tokens.map(token => [
-    token.admin_username || '',
+    // Convert admin_username to lowercase to match parsing logic
+    (token.admin_username || '').toLowerCase().trim(),
     token.base_token || '',
     token.token_name || '',
     token.token_symbol || '',
@@ -109,8 +152,10 @@ function transformTokensToSheetsFormat(tokens) {
     token.twitter_url || token.website_url || '',
     // Calculate token_age from created_at Unix timestamp
     calculateTokenAge(token.created_at),
-    token.market_cap?.toString() || '0',
-    token.ath_market_cap?.toString() || '0',
+    // market_cap is a REAL number, convert to string
+    (token.market_cap ?? 0).toString(),
+    // ath_market_cap is TEXT in Supabase - return as-is (already a string)
+    token.ath_market_cap || '0',
     token.token_score?.toString() || '0'
   ]);
 
