@@ -76,21 +76,24 @@ function formatMigrateTime(seconds) {
 }
 
 /**
- * Format timestamp - handles both Unix timestamps (seconds) and ISO strings
+ * Format timestamp - handles Unix timestamps (seconds as number or string) and ISO strings
  * @param {number|string} timestamp - Unix timestamp (seconds) or ISO date string
  * @returns {string} ISO date string or empty string
  */
 function formatTimestamp(timestamp) {
   if (!timestamp) return '';
 
-  // If it's already a string (ISO format), return it as-is
-  if (typeof timestamp === 'string') {
+  // If it's already an ISO format string (contains 'T' or '-'), return as-is
+  if (typeof timestamp === 'string' && (timestamp.includes('T') || timestamp.includes('-'))) {
     return timestamp;
   }
 
-  // If it's a number, assume it's a Unix timestamp in seconds
-  if (typeof timestamp === 'number') {
-    return new Date(timestamp * 1000).toISOString();
+  // Convert to number if it's a string representation of a Unix timestamp
+  const numTimestamp = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+
+  // If we got a valid number, treat it as Unix timestamp in seconds
+  if (typeof numTimestamp === 'number' && !isNaN(numTimestamp) && numTimestamp > 0) {
+    return new Date(numTimestamp * 1000).toISOString();
   }
 
   return '';
