@@ -211,29 +211,85 @@ module.exports = async function handler(req, res) {
   try {
     console.log('[Supabase API] Fetching admins and tokens from Supabase...');
 
-    // Fetch admins from Supabase
-    const { data: adminsData, error: adminsError } = await supabase
-      .from('admins')
-      .select('*')
-      .order('admin_username', { ascending: true });
+    // Fetch ALL admins from Supabase (handle pagination)
+    let adminsData = [];
+    let adminsError = null;
+    let adminsPage = 0;
+    const adminsPageSize = 1000;
+
+    do {
+      const { data, error, count } = await supabase
+        .from('admins')
+        .select('*', { count: 'exact' })
+        .order('admin_username', { ascending: true })
+        .range(adminsPage * adminsPageSize, (adminsPage + 1) * adminsPageSize - 1);
+
+      if (error) {
+        adminsError = error;
+        break;
+      }
+
+      if (data && data.length > 0) {
+        adminsData = adminsData.concat(data);
+        adminsPage++;
+
+        // Log progress for large datasets
+        console.log(`[Supabase API] Fetched ${adminsData.length} of ${count || '?'} admins...`);
+
+        // If we got less than a full page, we're done
+        if (data.length < adminsPageSize) {
+          break;
+        }
+      } else {
+        break;
+      }
+    } while (true);
 
     if (adminsError) {
       console.error('[Supabase API] Admins fetch error:', adminsError);
       throw adminsError;
     }
 
-    // Fetch tokens from Supabase
-    const { data: tokensData, error: tokensError } = await supabase
-      .from('tokens')
-      .select('*')
-      .order('admin_username', { ascending: true });
+    // Fetch ALL tokens from Supabase (handle pagination)
+    let tokensData = [];
+    let tokensError = null;
+    let tokensPage = 0;
+    const tokensPageSize = 1000;
+
+    do {
+      const { data, error, count } = await supabase
+        .from('tokens')
+        .select('*', { count: 'exact' })
+        .order('admin_username', { ascending: true })
+        .range(tokensPage * tokensPageSize, (tokensPage + 1) * tokensPageSize - 1);
+
+      if (error) {
+        tokensError = error;
+        break;
+      }
+
+      if (data && data.length > 0) {
+        tokensData = tokensData.concat(data);
+        tokensPage++;
+
+        // Log progress for large datasets
+        console.log(`[Supabase API] Fetched ${tokensData.length} of ${count || '?'} tokens...`);
+
+        // If we got less than a full page, we're done
+        if (data.length < tokensPageSize) {
+          break;
+        }
+      } else {
+        break;
+      }
+    } while (true);
 
     if (tokensError) {
       console.error('[Supabase API] Tokens fetch error:', tokensError);
       throw tokensError;
     }
 
-    console.log('[Supabase API] Fetched', adminsData?.length || 0, 'admins and', tokensData?.length || 0, 'tokens');
+    console.log('[Supabase API] Fetched ALL', adminsData?.length || 0, 'admins and', tokensData?.length || 0, 'tokens');
 
     // Transform admins to Sheets format
     const admins = transformAdminsToSheetsFormat(adminsData || []);
