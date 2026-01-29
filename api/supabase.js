@@ -74,6 +74,27 @@ function formatMigrateTime(seconds) {
     return '< 1m';
   }
 }
+
+/**
+ * Format timestamp - handles both Unix timestamps (seconds) and ISO strings
+ * @param {number|string} timestamp - Unix timestamp (seconds) or ISO date string
+ * @returns {string} ISO date string or empty string
+ */
+function formatTimestamp(timestamp) {
+  if (!timestamp) return '';
+
+  // If it's already a string (ISO format), return it as-is
+  if (typeof timestamp === 'string') {
+    return timestamp;
+  }
+
+  // If it's a number, assume it's a Unix timestamp in seconds
+  if (typeof timestamp === 'number') {
+    return new Date(timestamp * 1000).toISOString();
+  }
+
+  return '';
+}
   if (!unixTimestamp) return '';
 
   const now = Math.floor(Date.now() / 1000);
@@ -122,9 +143,10 @@ function transformAdminsToSheetsFormat(admins) {
     ((admin.winrate || 0) * 100).toString(),
     // avg_migrate_time is in seconds, convert to human readable format
     admin.avg_migrate_time ? formatMigrateTime(admin.avg_migrate_time) : '',
-    // Convert Unix timestamp to ISO date string
-    admin.last_active ? new Date(admin.last_active * 1000).toISOString() : '',
-    admin.last_updated ? new Date(admin.last_updated * 1000).toISOString() : ''
+    // Handle timestamp - could be Unix timestamp (number) or ISO string
+    formatTimestamp(admin.last_active),
+    // Handle timestamp - could be Unix timestamp (number) or ISO string
+    formatTimestamp(admin.last_updated)
   ]);
 
   return [header, ...rows];
