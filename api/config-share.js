@@ -9,11 +9,30 @@
 // PATCH  /api/config-share?action=visibility                          - Toggle visibility
 // DELETE /api/config-share?id={configId}                              - Delete config
 
-export default async function handler(req, res) {
-  console.log('[CONFIG-SHARE] Method:', req.method);
-  console.log('[CONFIG-SHARE] Query:', req.query);
-  console.log('[CONFIG-SHARE] Has auth:', !!req.headers.authorization);
+import { jwtVerify } from 'jose';
 
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+const secretKey = new TextEncoder().encode(JWT_SECRET);
+
+/**
+ * Verify JWT token for license validation
+ * @param {string} token - JWT token to verify
+ * @returns {Promise<object|null>} Decoded payload if valid, null if invalid
+ */
+async function verifyToken(token) {
+  try {
+    const { payload } = await jwtVerify(token, secretKey);
+    if (payload.purpose !== 'honed-license') {
+      return null;
+    }
+    return payload;
+  } catch (error) {
+    console.log('[CONFIG-SHARE] JWT verify error:', error.message);
+    return null;
+  }
+}
+
+export default async function handler(req, res) {
   // Set CORS headers FIRST - allow any chrome-extension origin
   const origin = req.headers.origin;
 
@@ -30,53 +49,36 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
-    console.log('[CONFIG-SHARE] OPTIONS request');
     return res.status(200).end();
   }
 
+  // Verify license token
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized - No token provided' });
+  }
+
+  const token = authHeader.substring(7);
+  const payload = await verifyToken(token);
+
+  if (!payload) {
+    return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
+  }
+
+  const deviceId = payload.device_id;
+
+  if (!deviceId) {
+    return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+  }
+
+  // Dynamic import for Supabase (like community.js does)
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+  );
+
   try {
-    console.log('[CONFIG-SHARE] Starting imports...');
-    // Dynamic imports
-    const { jwtVerify } = await import('jose');
-    const { createClient } = await import('@supabase/supabase-js');
-
-    const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
-    console.log('[CONFIG-SHARE] JWT_SECRET exists:', !!process.env.JWT_SECRET);
-    console.log('[CONFIG-SHARE] JWT_SECRET length:', JWT_SECRET.length);
-    const secretKey = new TextEncoder().encode(JWT_SECRET);
-
-    const supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_ANON_KEY
-    );
-
-    // Verify JWT and get device_id
-    const authorization = req.headers.authorization;
-    if (!authorization) {
-      return res.status(401).json({ error: 'Missing authorization header' });
-    }
-
-    const token = authorization.replace('Bearer ', '');
-    let decoded;
-    try {
-      const { payload } = await jwtVerify(token, secretKey);
-      console.log('JWT verified successfully:', payload);
-      if (payload.purpose !== 'honed-license') {
-        console.log('JWT purpose mismatch:', payload.purpose);
-        return res.status(401).json({ error: 'Invalid token' });
-      }
-      decoded = payload;
-    } catch (error) {
-      console.log('JWT verification failed:', error.message);
-      return res.status(401).json({ error: 'Invalid token', details: error.message });
-    }
-
-    const deviceId = decoded?.device_id;
-
-    if (!deviceId) {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-
     // Route based on method and action
     if (req.method === 'GET') {
       const action = req.query.action;
@@ -91,15 +93,12 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const action = req.query.action || req.body?.action;
-      console.log('[CONFIG-SHARE] POST action:', action);
 
       if (action === 'copy') {
         return await handleCopy(req, res, deviceId, supabase);
       } else if (action === 'upload') {
-        console.log('[CONFIG-SHARE] Routing to upload handler');
         return await handleUpload(req, res, deviceId, supabase);
       } else {
-        console.log('[CONFIG-SHARE] Invalid action:', action);
         return res.status(400).json({ error: 'Invalid action' });
       }
     }
@@ -202,14 +201,9 @@ async function handlePreview(req, res, deviceId, supabase) {
 
 // Upload config (POST /api/config-share?action=upload)
 async function handleUpload(req, res, deviceId, supabase) {
-  console.log('[UPLOAD] Starting upload for deviceId:', deviceId);
   const { displayName, description, isPublic, configData } = req.body;
 
-  console.log('[UPLOAD] Request body keys:', Object.keys(req.body));
-  console.log('[UPLOAD] Has configData:', !!configData);
-
   if (!configData) {
-    console.log('[UPLOAD] Missing config data');
     return res.status(400).json({ error: 'Missing config data' });
   }
 
@@ -218,15 +212,11 @@ async function handleUpload(req, res, deviceId, supabase) {
   const blacklistCount = configData.settings?.adminBlacklistList?.length || 0;
   const configSizeBytes = JSON.stringify(configData).length;
 
-  console.log('[UPLOAD] Stats:', { adminsCount, tweetsCount, blacklistCount, configSizeBytes });
-
   const MAX_SIZE = 5 * 1024 * 1024;
   if (configSizeBytes > MAX_SIZE) {
-    console.log('[UPLOAD] Config too large');
     return res.status(400).json({ error: 'Config size exceeds 5MB limit' });
   }
 
-  console.log('[UPLOAD] Inserting into Supabase...');
   const { data, error } = await supabase
     .from('shared_configs')
     .insert({
@@ -244,13 +234,10 @@ async function handleUpload(req, res, deviceId, supabase) {
     .single();
 
   if (error) {
-    console.error('[UPLOAD] Supabase error:', error);
-    console.error('[UPLOAD] Supabase error code:', error.code);
-    console.error('[UPLOAD] Supabase error message:', error.message);
-    return res.status(500).json({ error: 'Failed to upload config', details: error.message });
+    console.error('Supabase error:', error);
+    return res.status(500).json({ error: 'Failed to upload config' });
   }
 
-  console.log('[UPLOAD] Upload successful, config ID:', data.id);
   return res.status(200).json({
     success: true,
     configId: data.id,
