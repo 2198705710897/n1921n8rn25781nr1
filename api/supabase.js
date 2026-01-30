@@ -208,8 +208,24 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
   }
 
+  // Get last sync timestamp for incremental updates
+  const lastSync = req.query.since ? parseInt(req.query.since, 10) : null;
+  const isIncremental = lastSync && !isNaN(lastSync) && lastSync > 0;
+
   try {
-    console.log('[Supabase API] Fetching admins and tokens from Supabase...');
+    const syncType = isIncremental ? 'INCREMENTAL' : 'FULL';
+    console.log(`[Supabase API] ${syncType} sync requested`, lastSync ? `(since ${new Date(lastSync * 1000).toISOString()})` : '(all data)');
+
+    // Build query with optional last_updated filter for incremental sync
+    const adminsQuery = supabase
+      .from('admins')
+      .select('*', { count: 'exact' })
+      .order('admin_username', { ascending: true });
+
+    // Apply incremental filter if provided (convert seconds to milliseconds for comparison)
+    if (isIncremental) {
+      adminsQuery.gt('last_updated', lastSync);
+    }
 
     // Fetch ALL admins from Supabase (handle pagination)
     let adminsData = [];
@@ -218,10 +234,7 @@ module.exports = async function handler(req, res) {
     const adminsPageSize = 1000;
 
     do {
-      const { data, error, count } = await supabase
-        .from('admins')
-        .select('*', { count: 'exact' })
-        .order('admin_username', { ascending: true })
+      const { data, error, count } = await adminsQuery
         .range(adminsPage * adminsPageSize, (adminsPage + 1) * adminsPageSize - 1);
 
       if (error) {
@@ -250,6 +263,19 @@ module.exports = async function handler(req, res) {
       throw adminsError;
     }
 
+    // Build query with optional last_updated filter for incremental sync
+    // IMPORTANT: Filter out tokens with NULL admin_username to avoid sending invalid tokens
+    const tokensQuery = supabase
+      .from('tokens')
+      .select('*', { count: 'exact' })
+      .not('admin_username', 'is', null)
+      .order('admin_username', { ascending: true });
+
+    // Apply incremental filter if provided
+    if (isIncremental) {
+      tokensQuery.gt('last_updated', lastSync);
+    }
+
     // Fetch ALL tokens from Supabase (handle pagination)
     let tokensData = [];
     let tokensError = null;
@@ -257,10 +283,7 @@ module.exports = async function handler(req, res) {
     const tokensPageSize = 1000;
 
     do {
-      const { data, error, count } = await supabase
-        .from('tokens')
-        .select('*', { count: 'exact' })
-        .order('admin_username', { ascending: true })
+      const { data, error, count } = await tokensQuery
         .range(tokensPage * tokensPageSize, (tokensPage + 1) * tokensPageSize - 1);
 
       if (error) {
@@ -289,48 +312,26 @@ module.exports = async function handler(req, res) {
       throw tokensError;
     }
 
-    console.log('[Supabase API] Fetched ALL', adminsData?.length || 0, 'admins and', tokensData?.length || 0, 'tokens');
+    console.log(`[Supabase API] ${syncType} sync complete:`, adminsData?.length || 0, 'admins,', tokensData?.length || 0, 'tokens');
 
     // Transform admins to Sheets format
     const admins = transformAdminsToSheetsFormat(adminsData || []);
 
-    // Transform tokens to Sheets format
+    // Transform ALL tokens to Sheets format (no splitting - Supabase has one tokens table)
     const allTokens = transformTokensToSheetsFormat(tokensData || []);
-
-    // Split tokens into regular (score 0-5) and failed (score 6)
-    const tokens = [];
-    const failedTokens = [];
-
-    // Start from index 1 to skip header
-    for (let i = 1; i < allTokens.length; i++) {
-      const row = allTokens[i];
-      const score = parseInt(row[8]) || 0; // Column I (index 8) - token_score
-
-      if (score >= 6) {
-        failedTokens.push(row);
-      } else {
-        tokens.push(row);
-      }
-    }
-
-    // Add headers to regular tokens and failed tokens
-    const tokenHeader = allTokens[0];
-    const tokensWithHeader = [tokenHeader, ...tokens];
-    const failedTokensWithHeader = failedTokens.length > 0 ? [tokenHeader, ...failedTokens] : [tokenHeader];
 
     console.log('[Supabase API] Returning data:', {
       admins: admins.length,
-      tokens: tokensWithHeader.length,
-      failedTokens: failedTokensWithHeader.length
+      tokens: allTokens.length
     });
 
     res.json({
       success: true,
       admins: admins,
-      tokens: tokensWithHeader,
-      failedTokens: failedTokensWithHeader,
-      comments: [],  // Empty - comments removed
-      dailyStats: []  // Empty - daily stats removed
+      tokens: allTokens,
+      failedTokens: [],  // Empty - Supabase has one tokens table, no separate failed list
+      comments: [],      // Empty - comments removed
+      dailyStats: []     // Empty - daily stats removed
     });
 
   } catch (error) {
