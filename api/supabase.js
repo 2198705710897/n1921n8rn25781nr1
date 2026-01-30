@@ -210,11 +210,19 @@ module.exports = async function handler(req, res) {
 
   // Update device_bindings last_seen (don't fail if logging errors)
   try {
+    // Get IP from Vercel headers
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const ip = forwardedFor ? forwardedFor.split(',')[0].trim() :
+               req.headers['x-vercel-forwarded-for'] ||
+               req.headers['x-real-ip'] ||
+               req.socket?.remoteAddress ||
+               null;
+
     await supabase
       .from('device_bindings')
       .update({
         last_seen: new Date().toISOString(),
-        last_ip: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
+        last_ip: ip,
         last_user_agent: req.headers['user-agent'] || null,
         last_endpoint: 'supabase'
       })
