@@ -149,9 +149,11 @@ export default async function handler(req, res) {
         const token = await generateToken(key, deviceId);
 
         // Log the validation request (don't fail if logging errors)
+        // Use truncated key format to match what's in the JWT
+        const truncatedKey = key.substring(0, 8) + '...';
         try {
           await supabase.from('api_requests').insert({
-            license_key: key,
+            license_key: truncatedKey,
             device_id: deviceId,
             endpoint: 'validate',
             ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
@@ -191,9 +193,11 @@ export default async function handler(req, res) {
       const token = await generateToken(key, deviceId);
 
       // Log the validation request (don't fail if logging errors)
+      // Use truncated key format to match what's in the JWT
+      const truncatedKey = key.substring(0, 8) + '...';
       try {
         await supabase.from('api_requests').insert({
-          license_key: key,
+          license_key: truncatedKey,
           device_id: deviceId,
           endpoint: 'validate',
           ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
