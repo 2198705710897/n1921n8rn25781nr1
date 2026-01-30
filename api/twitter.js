@@ -21,13 +21,13 @@ async function verifyToken(token) {
 }
 
 export default async function handler(req, res) {
-  // Set CORS headers FIRST
+  // Set CORS headers FIRST - allow any chrome-extension origin
   const origin = req.headers.origin;
-  const extensionId = process.env.EXTENSION_ID;
-  const allowedOrigin = `chrome-extension://${extensionId}`;
 
-  if (origin) {
+  // Allow chrome-extension origins
+  if (origin && (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -41,12 +41,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Only allow your extension
-  if (!origin || origin !== allowedOrigin) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-
-  // Verify license token
+  // Verify license token (this is the real security check)
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized - No token provided' });
@@ -58,6 +53,26 @@ export default async function handler(req, res) {
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
   }
+
+  // Log the API request
+  const { createClient } = require('@supabase/supabase-js');
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
+  const { data: keyData } = await supabase
+    .from('license_keys')
+    .select('key')
+    .like('key', `${payload.licenseKey.substring(0, 4)}%`)
+    .limit(1);
+
+  const fullLicenseKey = keyData && keyData.length > 0 ? keyData[0].key : payload.licenseKey;
+
+  await supabase.from('api_requests').insert({
+    license_key: fullLicenseKey,
+    device_id: payload.deviceId,
+    endpoint: 'twitter',
+    ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
+    user_agent: req.headers['user-agent'] || null
+  }).catch(() => {}); // Silently fail if logging fails
 
   try {
     const { userName } = req.query;
