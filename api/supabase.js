@@ -208,14 +208,18 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
   }
 
-  // Log the API request (fire and forget, don't block response)
-  supabase.from('api_requests').insert({
-    license_key: payload.licenseKey,
-    device_id: payload.deviceId,
-    endpoint: 'supabase',
-    ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
-    user_agent: req.headers['user-agent'] || null
-  });
+  // Log the API request (don't fail if logging errors)
+  try {
+    await supabase.from('api_requests').insert({
+      license_key: payload.licenseKey,
+      device_id: payload.deviceId,
+      endpoint: 'supabase',
+      ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
+      user_agent: req.headers['user-agent'] || null
+    });
+  } catch (logError) {
+    console.error('[Supabase API] Logging error:', logError);
+  }
 
   // Get last sync timestamp for incremental updates
   const lastSync = req.query.since ? parseInt(req.query.since, 10) : null;
