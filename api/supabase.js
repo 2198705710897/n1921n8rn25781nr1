@@ -208,22 +208,14 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
   }
 
-  // Log the API request (extract full license key from database if needed)
-  const { data: keyData } = await supabase
-    .from('license_keys')
-    .select('key')
-    .like('key', `${payload.licenseKey.substring(0, 4)}%`)
-    .limit(1);
-
-  const fullLicenseKey = keyData && keyData.length > 0 ? keyData[0].key : payload.licenseKey;
-
-  await supabase.from('api_requests').insert({
-    license_key: fullLicenseKey,
+  // Log the API request (fire and forget, don't block response)
+  supabase.from('api_requests').insert({
+    license_key: payload.licenseKey,
     device_id: payload.deviceId,
     endpoint: 'supabase',
     ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
     user_agent: req.headers['user-agent'] || null
-  }).catch(() => {}); // Silently fail if logging fails
+  });
 
   // Get last sync timestamp for incremental updates
   const lastSync = req.query.since ? parseInt(req.query.since, 10) : null;

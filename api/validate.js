@@ -148,14 +148,14 @@ export default async function handler(req, res) {
       if (existingBinding.device_id === deviceId) {
         const token = await generateToken(key, deviceId);
 
-        // Log the validation request
-        await supabase.from('api_requests').insert({
+        // Log the validation request (fire and forget, don't block response)
+        supabase.from('api_requests').insert({
           license_key: key,
           device_id: deviceId,
           endpoint: 'validate',
           ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
           user_agent: req.headers['user-agent'] || null
-        }).catch(() => {}); // Silently fail if logging fails
+        });
 
         return res.json(buildResponse({
           valid: true,
@@ -186,14 +186,14 @@ export default async function handler(req, res) {
 
       const token = await generateToken(key, deviceId);
 
-      // Log the validation request
-      await supabase.from('api_requests').insert({
+      // Log the validation request (fire and forget, don't block response)
+      supabase.from('api_requests').insert({
         license_key: key,
         device_id: deviceId,
         endpoint: 'validate',
         ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
         user_agent: req.headers['user-agent'] || null
-      }).catch(() => {}); // Silently fail if logging fails
+      });
 
       return res.json(buildResponse({
         valid: true,
