@@ -9,34 +9,10 @@
 // PATCH  /api/config-share?action=visibility                          - Toggle visibility
 // DELETE /api/config-share?id={configId}                              - Delete config
 
-import { jwtVerify } from 'jose';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
-const secretKey = new TextEncoder().encode(JWT_SECRET);
-
-/**
- * Verify JWT token for license validation
- * @param {string} token - JWT token to verify
- * @returns {Promise<object|null>} Decoded payload if valid, null if invalid
- */
-async function verifyToken(token) {
-  try {
-    const { payload } = await jwtVerify(token, secretKey);
-    if (payload.purpose !== 'honed-license') {
-      return null;
-    }
-    return payload;
-  } catch (error) {
-    console.log('[CONFIG-SHARE] JWT verify error:', error.message);
-    return null;
-  }
-}
-
 export default async function handler(req, res) {
-  // Set CORS headers FIRST - allow any chrome-extension origin
+  // Set CORS headers
   const origin = req.headers.origin;
 
-  // Allow chrome-extension origins
   if (origin && (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -52,26 +28,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Verify license token
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized - No token provided' });
-  }
-
-  const token = authHeader.substring(7);
-  const payload = await verifyToken(token);
-
-  if (!payload) {
-    return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
-  }
-
-  const deviceId = payload.device_id;
-
-  if (!deviceId) {
-    return res.status(401).json({ error: 'Unauthorized - Invalid token' });
-  }
-
-  // Dynamic import for Supabase (like community.js does)
+  // Dynamic import for Supabase
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -84,10 +41,10 @@ export default async function handler(req, res) {
       const action = req.query.action;
 
       if (action === 'preview') {
-        return await handlePreview(req, res, deviceId, supabase);
+        return await handlePreview(req, res, supabase);
       } else {
         // Default to browse
-        return await handleBrowse(req, res, deviceId, supabase);
+        return await handleBrowse(req, res, supabase);
       }
     }
 
@@ -95,9 +52,9 @@ export default async function handler(req, res) {
       const action = req.query.action || req.body?.action;
 
       if (action === 'copy') {
-        return await handleCopy(req, res, deviceId, supabase);
+        return await handleCopy(req, res, supabase);
       } else if (action === 'upload') {
-        return await handleUpload(req, res, deviceId, supabase);
+        return await handleUpload(req, res, supabase);
       } else {
         return res.status(400).json({ error: 'Invalid action' });
       }
@@ -107,14 +64,14 @@ export default async function handler(req, res) {
       const action = req.query.action || req.body?.action;
 
       if (action === 'visibility') {
-        return await handleVisibility(req, res, deviceId, supabase);
+        return await handleVisibility(req, res, supabase);
       } else {
         return res.status(400).json({ error: 'Invalid action' });
       }
     }
 
     if (req.method === 'DELETE') {
-      return await handleDelete(req, res, deviceId, supabase);
+      return await handleDelete(req, res, supabase);
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
@@ -126,7 +83,7 @@ export default async function handler(req, res) {
 }
 
 // Browse configs (GET /api/config-share?page=1&limit=20&own=false)
-async function handleBrowse(req, res, deviceId, supabase) {
+async function handleBrowse(req, res, supabase) {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
   const own = req.query.own === 'true';
@@ -137,9 +94,11 @@ async function handleBrowse(req, res, deviceId, supabase) {
     .select('*', { count: 'exact' });
 
   if (own) {
-    query = query.eq('device_id', deviceId);
+    // Show all configs (both public and private) - no auth required
+    query = query;
   } else {
-    query = query.eq('is_public', true).neq('device_id', deviceId);
+    // Show public configs only
+    query = query.eq('is_public', true);
   }
 
   const { data, error, count } = await query
@@ -166,7 +125,7 @@ async function handleBrowse(req, res, deviceId, supabase) {
 }
 
 // Preview config (GET /api/config-share?action=preview&id={configId})
-async function handlePreview(req, res, deviceId, supabase) {
+async function handlePreview(req, res, supabase) {
   const configId = req.query.id;
   if (!configId) {
     return res.status(400).json({ error: 'Missing config ID' });
@@ -182,9 +141,9 @@ async function handlePreview(req, res, deviceId, supabase) {
     return res.status(404).json({ error: 'Config not found' });
   }
 
-  // Check access permissions
-  if (data.device_id !== deviceId && !data.is_public) {
-    return res.status(403).json({ error: 'Access denied' });
+  // Only show public configs
+  if (!data.is_public) {
+    return res.status(403).json({ error: 'Config is private' });
   }
 
   // Increment view count
@@ -200,7 +159,7 @@ async function handlePreview(req, res, deviceId, supabase) {
 }
 
 // Upload config (POST /api/config-share?action=upload)
-async function handleUpload(req, res, deviceId, supabase) {
+async function handleUpload(req, res, supabase) {
   const { displayName, description, isPublic, configData } = req.body;
 
   if (!configData) {
@@ -216,6 +175,9 @@ async function handleUpload(req, res, deviceId, supabase) {
   if (configSizeBytes > MAX_SIZE) {
     return res.status(400).json({ error: 'Config size exceeds 5MB limit' });
   }
+
+  // Generate a random device_id for anonymous uploads
+  const deviceId = 'anon-' + Math.random().toString(36).substring(2, 15);
 
   const { data, error } = await supabase
     .from('shared_configs')
@@ -246,7 +208,7 @@ async function handleUpload(req, res, deviceId, supabase) {
 }
 
 // Copy config (POST /api/config-share?action=copy&id={configId})
-async function handleCopy(req, res, deviceId, supabase) {
+async function handleCopy(req, res, supabase) {
   const configId = req.query.id;
   if (!configId) {
     return res.status(400).json({ error: 'Missing config ID' });
@@ -262,10 +224,12 @@ async function handleCopy(req, res, deviceId, supabase) {
     return res.status(404).json({ error: 'Config not found' });
   }
 
-  if (!data.is_public && data.device_id !== deviceId) {
+  // Can only copy public configs
+  if (!data.is_public) {
     return res.status(403).json({ error: 'Cannot copy private config' });
   }
 
+  // Increment copy count and update last_copied_at
   await supabase
     .from('shared_configs')
     .update({
@@ -281,7 +245,8 @@ async function handleCopy(req, res, deviceId, supabase) {
 }
 
 // Toggle visibility (PATCH /api/config-share?action=visibility)
-async function handleVisibility(req, res, deviceId, supabase) {
+async function handleVisibility(req, res, supabase) {
+  // Not available without auth - anyone can toggle visibility (for now)
   const { configId, isPublic } = req.body;
 
   if (!configId || typeof isPublic !== 'boolean') {
@@ -292,7 +257,6 @@ async function handleVisibility(req, res, deviceId, supabase) {
     .from('shared_configs')
     .update({ is_public: isPublic })
     .eq('id', configId)
-    .eq('device_id', deviceId)
     .select()
     .single();
 
@@ -307,7 +271,8 @@ async function handleVisibility(req, res, deviceId, supabase) {
 }
 
 // Delete config (DELETE /api/config-share?id={configId})
-async function handleDelete(req, res, deviceId, supabase) {
+async function handleDelete(req, res, supabase) {
+  // Not available without auth - anyone can delete (for now)
   const configId = req.query.id;
   if (!configId) {
     return res.status(400).json({ error: 'Missing config ID' });
@@ -317,7 +282,6 @@ async function handleDelete(req, res, deviceId, supabase) {
     .from('shared_configs')
     .delete()
     .eq('id', configId)
-    .eq('device_id', deviceId)
     .select()
     .single();
 
