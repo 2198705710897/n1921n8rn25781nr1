@@ -35,6 +35,8 @@ export default async function handler(req, res) {
     const { createClient } = await import('@supabase/supabase-js');
 
     const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+    console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET);
+    console.log('JWT_SECRET length:', JWT_SECRET.length);
     const secretKey = new TextEncoder().encode(JWT_SECRET);
 
     const supabase = createClient(
@@ -52,12 +54,15 @@ export default async function handler(req, res) {
     let decoded;
     try {
       const { payload } = await jwtVerify(token, secretKey);
+      console.log('JWT verified successfully:', payload);
       if (payload.purpose !== 'honed-license') {
+        console.log('JWT purpose mismatch:', payload.purpose);
         return res.status(401).json({ error: 'Invalid token' });
       }
       decoded = payload;
     } catch (error) {
-      return res.status(401).json({ error: 'Invalid token' });
+      console.log('JWT verification failed:', error.message);
+      return res.status(401).json({ error: 'Invalid token', details: error.message });
     }
 
     const deviceId = decoded?.device_id;
