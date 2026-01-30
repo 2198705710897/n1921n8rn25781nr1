@@ -10,6 +10,10 @@
 // DELETE /api/config-share?id={configId}                              - Delete config
 
 export default async function handler(req, res) {
+  console.log('[CONFIG-SHARE] Method:', req.method);
+  console.log('[CONFIG-SHARE] Query:', req.query);
+  console.log('[CONFIG-SHARE] Has auth:', !!req.headers.authorization);
+
   // Set CORS headers FIRST - allow any chrome-extension origin
   const origin = req.headers.origin;
 
@@ -26,17 +30,19 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
+    console.log('[CONFIG-SHARE] OPTIONS request');
     return res.status(200).end();
   }
 
   try {
+    console.log('[CONFIG-SHARE] Starting imports...');
     // Dynamic imports
     const { jwtVerify } = await import('jose');
     const { createClient } = await import('@supabase/supabase-js');
 
     const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
-    console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET);
-    console.log('JWT_SECRET length:', JWT_SECRET.length);
+    console.log('[CONFIG-SHARE] JWT_SECRET exists:', !!process.env.JWT_SECRET);
+    console.log('[CONFIG-SHARE] JWT_SECRET length:', JWT_SECRET.length);
     const secretKey = new TextEncoder().encode(JWT_SECRET);
 
     const supabase = createClient(
