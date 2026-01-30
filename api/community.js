@@ -54,19 +54,21 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
   }
 
-  // Log the API request (don't fail if logging errors)
+  // Update device_bindings last_seen (don't fail if logging errors)
   try {
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-    await supabase.from('api_requests').insert({
-      license_key: payload.licenseKey,
-      device_id: payload.deviceId,
-      endpoint: 'community',
-      ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
-      user_agent: req.headers['user-agent'] || null
-    });
+    await supabase
+      .from('device_bindings')
+      .update({
+        last_seen: new Date().toISOString(),
+        last_ip: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
+        last_user_agent: req.headers['user-agent'] || null,
+        last_endpoint: 'community'
+      })
+      .eq('device_id', payload.deviceId);
   } catch (logError) {
-    console.error('[Community API] Logging error:', logError);
+    console.error('[Community API] Tracking update error:', logError);
   }
 
   try {

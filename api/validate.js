@@ -148,19 +148,19 @@ export default async function handler(req, res) {
       if (existingBinding.device_id === deviceId) {
         const token = await generateToken(key, deviceId);
 
-        // Log the validation request (don't fail if logging errors)
-        // Use truncated key format to match what's in the JWT
-        const truncatedKey = key.substring(0, 8) + '...';
+        // Update last_seen tracking (don't fail if logging errors)
         try {
-          await supabase.from('api_requests').insert({
-            license_key: truncatedKey,
-            device_id: deviceId,
-            endpoint: 'validate',
-            ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
-            user_agent: req.headers['user-agent'] || null
-          });
+          await supabase
+            .from('device_bindings')
+            .update({
+              last_seen: new Date().toISOString(),
+              last_ip: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
+              last_user_agent: req.headers['user-agent'] || null,
+              last_endpoint: 'validate'
+            })
+            .eq('license_key', key);
         } catch (logError) {
-          console.error('[Validate API] Logging error:', logError);
+          console.error('[Validate API] Tracking update error:', logError);
         }
 
         return res.json(buildResponse({
@@ -183,7 +183,11 @@ export default async function handler(req, res) {
         .insert({
           license_key: key,
           device_id: deviceId,
-          bound_at: new Date().toISOString()
+          bound_at: new Date().toISOString(),
+          last_seen: new Date().toISOString(),
+          last_ip: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
+          last_user_agent: req.headers['user-agent'] || null,
+          last_endpoint: 'validate'
         });
 
       if (insertError) {
@@ -191,21 +195,6 @@ export default async function handler(req, res) {
       }
 
       const token = await generateToken(key, deviceId);
-
-      // Log the validation request (don't fail if logging errors)
-      // Use truncated key format to match what's in the JWT
-      const truncatedKey = key.substring(0, 8) + '...';
-      try {
-        await supabase.from('api_requests').insert({
-          license_key: truncatedKey,
-          device_id: deviceId,
-          endpoint: 'validate',
-          ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
-          user_agent: req.headers['user-agent'] || null
-        });
-      } catch (logError) {
-        console.error('[Validate API] Logging error:', logError);
-      }
 
       return res.json(buildResponse({
         valid: true,
