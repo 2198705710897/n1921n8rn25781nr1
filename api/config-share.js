@@ -9,34 +9,6 @@
 // PATCH  /api/config-share?action=visibility                          - Toggle visibility
 // DELETE /api/config-share?id={configId}                              - Delete config
 
-import { jwtVerify } from 'jose';
-import { createClient } from '@supabase/supabase-js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
-const secretKey = new TextEncoder().encode(JWT_SECRET);
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
-
-/**
- * Verify JWT token for license validation
- * @param {string} token - JWT token to verify
- * @returns {Promise<object|null>} Decoded payload if valid, null if invalid
- */
-async function verifyToken(token) {
-  try {
-    const { payload } = await jwtVerify(token, secretKey);
-    if (payload.purpose !== 'honed-license') {
-      return null;
-    }
-    return payload;
-  } catch (error) {
-    return null;
-  }
-}
-
 export default async function handler(req, res) {
   // Set CORS headers FIRST - allow any chrome-extension origin
   const origin = req.headers.origin;
@@ -57,30 +29,52 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Verify JWT and get device_id
-  const authorization = req.headers.authorization;
-  if (!authorization) {
-    return res.status(401).json({ error: 'Missing authorization header' });
-  }
-
-  const token = authorization.replace('Bearer ', '');
-  const decoded = await verifyToken(token);
-  const deviceId = decoded?.device_id;
-
-  if (!deviceId) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-
   try {
+    // Dynamic imports
+    const { jwtVerify } = await import('jose');
+    const { createClient } = await import('@supabase/supabase-js');
+
+    const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+    const secretKey = new TextEncoder().encode(JWT_SECRET);
+
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_KEY
+    );
+
+    // Verify JWT and get device_id
+    const authorization = req.headers.authorization;
+    if (!authorization) {
+      return res.status(401).json({ error: 'Missing authorization header' });
+    }
+
+    const token = authorization.replace('Bearer ', '');
+    let decoded;
+    try {
+      const { payload } = await jwtVerify(token, secretKey);
+      if (payload.purpose !== 'honed-license') {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+      decoded = payload;
+    } catch (error) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const deviceId = decoded?.device_id;
+
+    if (!deviceId) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
     // Route based on method and action
     if (req.method === 'GET') {
       const action = req.query.action;
 
       if (action === 'preview') {
-        return await handlePreview(req, res, deviceId);
+        return await handlePreview(req, res, deviceId, supabase);
       } else {
         // Default to browse
-        return await handleBrowse(req, res, deviceId);
+        return await handleBrowse(req, res, deviceId, supabase);
       }
     }
 
@@ -88,9 +82,9 @@ export default async function handler(req, res) {
       const action = req.query.action || req.body?.action;
 
       if (action === 'copy') {
-        return await handleCopy(req, res, deviceId);
+        return await handleCopy(req, res, deviceId, supabase);
       } else if (action === 'upload') {
-        return await handleUpload(req, res, deviceId);
+        return await handleUpload(req, res, deviceId, supabase);
       } else {
         return res.status(400).json({ error: 'Invalid action' });
       }
@@ -100,14 +94,14 @@ export default async function handler(req, res) {
       const action = req.query.action || req.body?.action;
 
       if (action === 'visibility') {
-        return await handleVisibility(req, res, deviceId);
+        return await handleVisibility(req, res, deviceId, supabase);
       } else {
         return res.status(400).json({ error: 'Invalid action' });
       }
     }
 
     if (req.method === 'DELETE') {
-      return await handleDelete(req, res, deviceId);
+      return await handleDelete(req, res, deviceId, supabase);
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
@@ -119,7 +113,7 @@ export default async function handler(req, res) {
 }
 
 // Browse configs (GET /api/config-share?page=1&limit=20&own=false)
-async function handleBrowse(req, res, deviceId) {
+async function handleBrowse(req, res, deviceId, supabase) {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
   const own = req.query.own === 'true';
@@ -159,7 +153,7 @@ async function handleBrowse(req, res, deviceId) {
 }
 
 // Preview config (GET /api/config-share?action=preview&id={configId})
-async function handlePreview(req, res, deviceId) {
+async function handlePreview(req, res, deviceId, supabase) {
   const configId = req.query.id;
   if (!configId) {
     return res.status(400).json({ error: 'Missing config ID' });
@@ -193,7 +187,7 @@ async function handlePreview(req, res, deviceId) {
 }
 
 // Upload config (POST /api/config-share?action=upload)
-async function handleUpload(req, res, deviceId) {
+async function handleUpload(req, res, deviceId, supabase) {
   const { displayName, description, isPublic, configData } = req.body;
 
   if (!configData) {
@@ -239,7 +233,7 @@ async function handleUpload(req, res, deviceId) {
 }
 
 // Copy config (POST /api/config-share?action=copy&id={configId})
-async function handleCopy(req, res, deviceId) {
+async function handleCopy(req, res, deviceId, supabase) {
   const configId = req.query.id;
   if (!configId) {
     return res.status(400).json({ error: 'Missing config ID' });
@@ -274,7 +268,7 @@ async function handleCopy(req, res, deviceId) {
 }
 
 // Toggle visibility (PATCH /api/config-share?action=visibility)
-async function handleVisibility(req, res, deviceId) {
+async function handleVisibility(req, res, deviceId, supabase) {
   const { configId, isPublic } = req.body;
 
   if (!configId || typeof isPublic !== 'boolean') {
@@ -300,7 +294,7 @@ async function handleVisibility(req, res, deviceId) {
 }
 
 // Delete config (DELETE /api/config-share?id={configId})
-async function handleDelete(req, res, deviceId) {
+async function handleDelete(req, res, deviceId, supabase) {
   const configId = req.query.id;
   if (!configId) {
     return res.status(400).json({ error: 'Missing config ID' });
