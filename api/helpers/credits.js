@@ -12,14 +12,14 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-// Credit costs per endpoint
+// Credit costs per endpoint (only external APIs cost credits)
 export const CREDIT_COSTS = {
-  'validate': 1,           // Baseline operation
-  'supabase': 20,          // Full data sync (heavy)
-  'supabase/recent': 10,   // Incremental sync (medium)
-  'twitter': 5,            // External API proxy
-  'community': 5,          // External API proxy
-  'sheets': 20,            // Legacy sheets sync (if used)
+  'validate': 0,           // Free - license validation
+  'supabase': 0,           // Free - internal data sync
+  'supabase/recent': 0,    // Free - internal incremental sync
+  'twitter': 20,           // External API - costs 20 credits
+  'community': 20,         // External API - costs 20 credits
+  'sheets': 0,             // Free - legacy sync (if used)
 };
 
 /**
