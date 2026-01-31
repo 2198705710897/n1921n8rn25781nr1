@@ -1,21 +1,33 @@
-{
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization"
-        }
-      ]
-    }
-  ]
-}
+{                                                                                                                                                                                                                                                                           
+    "version": 2,                                                                                                                                                                                                                                                             
+    "builds": [                                                                                                                                                                                                                                                               
+      {                                                                                                                                                                                                                                                                       
+        "src": "vercel/api/**/*.js",                                                                                                                                                                                                                                          
+        "use": "@vercel/node"                                                                                                                                                                                                                                                 
+      }                                                                                                                                                                                                                                                                       
+    ],                                                                                                                                                                                                                                                                        
+    "routes": [                                                                                                                                                                                                                                                               
+      {                                                                                                                                                                                                                                                                       
+        "src": "/api/(.*)",                                                                                                                                                                                                                                                   
+        "headers": {                                                                                                                                                                                                                                                          
+          "Cache-Control": "no-store, no-cache, must-revalidate"                                                                                                                                                                                                              
+        }                                                                                                                                                                                                                                                                     
+      },                                                                                                                                                                                                                                                                      
+      {                                                                                                                                                                                                                                                                       
+        "src": "/latest-version.json",                                                                                                                                                                                                                                        
+        "dest": "/public/latest-version.json"                                                                                                                                                                                                                                 
+      },                                                                                                                                                                                                                                                                      
+      {                                                                                                                                                                                                                                                                       
+        "src": "/honed.zip",                                                                                                                                                                                                                                                  
+        "dest": "/public/honed.zip"                                                                                                                                                                                                                                           
+      },                                                                                                                                                                                                                                                                      
+      {                                                                                                                                                                                                                                                                       
+        "src": "/api/(.*)",                                                                                                                                                                                                                                                   
+        "dest": "/vercel/api/$1"                                                                                                                                                                                                                                              
+      },                                                                                                                                                                                                                                                                      
+      {                                                                                                                                                                                                                                                                       
+        "src": "/(.*)",                                                                                                                                                                                                                                                       
+        "dest": "/vercel/$1"                                                                                                                                                                                                                                                  
+      }                                                                                                                                                                                                                                                                       
+    ]                                                                                                                                                                                                                                                                         
+  }
