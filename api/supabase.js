@@ -143,10 +143,10 @@ function transformAdminsToSheetsFormat(admins) {
  */
 function transformTokensToSheetsFormat(tokens) {
   if (!tokens || tokens.length === 0) {
-    return [['admin_username', 'base_token', 'token_name', 'token_symbol', 'community_link', 'token_age', 'market_cap', 'ath_market_cap', 'token_score']];
+    return [['admin_username', 'base_token', 'token_name', 'token_symbol', 'community_link', 'token_age', 'market_cap', 'ath_market_cap', 'token_score', 'created_at']];
   }
 
-  const header = ['admin_username', 'base_token', 'token_name', 'token_symbol', 'community_link', 'token_age', 'market_cap', 'ath_market_cap', 'token_score'];
+  const header = ['admin_username', 'base_token', 'token_name', 'token_symbol', 'community_link', 'token_age', 'market_cap', 'ath_market_cap', 'token_score', 'created_at'];
 
   const rows = tokens.map(token => [
     // Convert admin_username to lowercase to match parsing logic
@@ -162,7 +162,9 @@ function transformTokensToSheetsFormat(tokens) {
     (token.market_cap ?? 0).toString(),
     // ath_market_cap is TEXT in Supabase - return as-is (already a string)
     token.ath_market_cap || '0',
-    token.token_score?.toString() || '0'
+    token.token_score?.toString() || '0',
+    // Include created_at timestamp for accurate daily stats calculation
+    token.created_at?.toString() || ''
   ]);
 
   return [header, ...rows];
