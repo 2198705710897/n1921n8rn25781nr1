@@ -1,33 +1,16 @@
-{                                                                                                                                                                                                                                                                           
-    "version": 2,                                                                                                                                                                                                                                                             
-    "builds": [                                                                                                                                                                                                                                                               
-      {                                                                                                                                                                                                                                                                       
-        "src": "vercel/api/**/*.js",                                                                                                                                                                                                                                          
-        "use": "@vercel/node"                                                                                                                                                                                                                                                 
-      }                                                                                                                                                                                                                                                                       
-    ],                                                                                                                                                                                                                                                                        
-    "routes": [                                                                                                                                                                                                                                                               
-      {                                                                                                                                                                                                                                                                       
-        "src": "/api/(.*)",                                                                                                                                                                                                                                                   
-        "headers": {                                                                                                                                                                                                                                                          
-          "Cache-Control": "no-store, no-cache, must-revalidate"                                                                                                                                                                                                              
-        }                                                                                                                                                                                                                                                                     
-      },                                                                                                                                                                                                                                                                      
-      {                                                                                                                                                                                                                                                                       
-        "src": "/latest-version.json",                                                                                                                                                                                                                                        
-        "dest": "/public/latest-version.json"                                                                                                                                                                                                                                 
-      },                                                                                                                                                                                                                                                                      
-      {                                                                                                                                                                                                                                                                       
-        "src": "/honed.zip",                                                                                                                                                                                                                                                  
-        "dest": "/public/honed.zip"                                                                                                                                                                                                                                           
-      },                                                                                                                                                                                                                                                                      
-      {                                                                                                                                                                                                                                                                       
-        "src": "/api/(.*)",                                                                                                                                                                                                                                                   
-        "dest": "/vercel/api/$1"                                                                                                                                                                                                                                              
-      },                                                                                                                                                                                                                                                                      
-      {                                                                                                                                                                                                                                                                       
-        "src": "/(.*)",                                                                                                                                                                                                                                                       
-        "dest": "/vercel/$1"                                                                                                                                                                                                                                                  
-      }                                                                                                                                                                                                                                                                       
-    ]                                                                                                                                                                                                                                                                         
-  }
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/vercel/api/:path*"
+    },
+    {
+      "source": "/latest-version.json",
+      "destination": "/vercel/public/latest-version.json"
+    },
+    {
+      "source": "/honed.zip",
+      "destination": "/vercel/public/honed.zip"
+    }
+  ]
+}
