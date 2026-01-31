@@ -22,7 +22,7 @@ async function generateToken(licenseKey, deviceId) {
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('2m') // 2 minutes - forces more frequent revalidation
+    .setExpirationTime('5m')
     .sign(secretKey);
 
   return token;
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Signature, X-Timestamp');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -150,6 +150,7 @@ export default async function handler(req, res) {
 
         // Update last_seen tracking (don't fail if logging errors)
         try {
+          // Get IP from Vercel headers
           const forwardedFor = req.headers['x-forwarded-for'];
           const ip = forwardedFor ? forwardedFor.split(',')[0].trim() :
                      req.headers['x-vercel-forwarded-for'] ||

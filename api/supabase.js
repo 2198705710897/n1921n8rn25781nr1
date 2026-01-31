@@ -1,11 +1,9 @@
 // Vercel serverless function for fetching admins and tokens from Supabase
 // Replaces Google Sheets as the primary data source
 // JWT authentication required
-// Request signing required for replay attack prevention
 
 const { createClient } = require('@supabase/supabase-js');
 const { jwtVerify } = require('jose');
-const crypto = require('crypto');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
@@ -13,37 +11,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const secretKey = new TextEncoder().encode(JWT_SECRET);
-
-// ============================================
-// RATE LIMITING (In-memory per device)
-// ============================================
-const rateLimits = new Map();
-const RATE_LIMIT_WINDOW = 60000; // 1 minute
-const RATE_LIMIT_REQUESTS = 100; // Max 100 requests per minute
-
-function checkRateLimit(deviceId) {
-  const now = Date.now();
-  const deviceLimits = rateLimits.get(deviceId) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
-
-  if (now > deviceLimits.resetTime) {
-    deviceLimits.count = 0;
-    deviceLimits.resetTime = now + RATE_LIMIT_WINDOW;
-  }
-
-  deviceLimits.count++;
-  rateLimits.set(deviceId, deviceLimits);
-
-  // Clean up old entries periodically
-  if (rateLimits.size > 10000) {
-    for (const [id, limits] of rateLimits.entries()) {
-      if (now > limits.resetTime) {
-        rateLimits.delete(id);
-      }
-    }
-  }
-
-  return deviceLimits.count <= RATE_LIMIT_REQUESTS;
-}
 
 /**
  * Verify JWT token for license validation
@@ -219,7 +186,7 @@ module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Signature, X-Timestamp');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   // Handle preflight requests - MUST return after setting headers
   if (req.method === 'OPTIONS') {
@@ -241,42 +208,6 @@ module.exports = async function handler(req, res) {
 
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
-  }
-
-  // ============================================
-  // REQUEST SIGNING VERIFICATION (Replay attack prevention)
-  // ============================================
-  const signature = req.headers['x-request-signature'];
-  const timestamp = req.headers['x-timestamp'];
-
-  if (!signature || !timestamp) {
-    return res.status(401).json({ error: 'Unauthorized - Missing signature headers' });
-  }
-
-  // Verify timestamp (±30 second window prevents replay attacks)
-  const now = Math.floor(Date.now() / 1000);
-  const requestTime = parseInt(timestamp);
-  if (isNaN(requestTime) || Math.abs(now - requestTime) > 30) {
-    return res.status(401).json({ error: 'Unauthorized - Request expired or invalid timestamp' });
-  }
-
-  // Verify HMAC signature
-  const expectedSignature = crypto
-    .createHmac('sha256', JWT_SECRET)
-    .update(`${payload.deviceId}:${payload.licenseKey}:${timestamp}`)
-    .digest('hex');
-
-  if (signature !== expectedSignature) {
-    console.error('[Supabase API] Signature verification failed for device:', payload.deviceId);
-    return res.status(401).json({ error: 'Unauthorized - Invalid signature' });
-  }
-
-  // ============================================
-  // RATE LIMITING CHECK
-  // ============================================
-  if (!checkRateLimit(payload.deviceId)) {
-    console.warn('[Supabase API] Rate limit exceeded for device:', payload.deviceId);
-    return res.status(429).json({ error: 'Too many requests - please try again later' });
   }
 
   // Update device_bindings last_seen (don't fail if logging errors)
