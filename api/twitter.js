@@ -1,5 +1,5 @@
 import { jwtVerify } from 'jose';
-import { trackApiUsage } from '../helpers/credits.js';
+import { trackApiUsage } from './helpers/credits.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const secretKey = new TextEncoder().encode(JWT_SECRET);
