@@ -1,6 +1,7 @@
 import { jwtVerify } from 'jose';
+import { trackApiUsage } from '../helpers/credits.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+const JWT_SECRET = process.env.JWT_SECRET;
 const secretKey = new TextEncoder().encode(JWT_SECRET);
 
 /**
@@ -52,6 +53,26 @@ export default async function handler(req, res) {
 
   if (!payload) {
     return res.status(401).json({ error: 'Unauthorized - Invalid or expired token' });
+  }
+
+  // ============================================
+  // CREDIT CHECK (before expensive external API call)
+  // ============================================
+  const creditCheck = await trackApiUsage(
+    payload.licenseKey,
+    payload.deviceId,
+    'twitter',
+    req,
+    { statusCode: 200, success: true }
+  );
+
+  if (!creditCheck.success) {
+    console.warn('[Twitter API] Credit check failed:', creditCheck.error);
+    return res.status(402).json({
+      error: 'Insufficient credits',
+      message: creditCheck.error,
+      creditsNeeded: 20
+    });
   }
 
   // Update device_bindings last_seen (don't fail if logging errors)

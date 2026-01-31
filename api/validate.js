@@ -1,11 +1,9 @@
 // Vercel serverless function for license validation with device binding
 // Uses Supabase for automatic device registration and license key management
 // Returns signed JWT token for server-side API enforcement
-// Tracks API usage and credits
 
 import { createClient } from '@supabase/supabase-js';
 import { SignJWT, jwtVerify } from 'jose';
-import { trackApiUsage } from '../helpers/credits.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
@@ -150,43 +148,35 @@ export default async function handler(req, res) {
       if (existingBinding.device_id === deviceId) {
         const token = await generateToken(key, deviceId);
 
-        // Track API usage and deduct credits (don't fail validation if tracking fails)
+        // Update last_seen tracking (don't fail if logging errors)
         try {
-          const creditResult = await trackApiUsage(key, deviceId, 'validate', req, {
-            statusCode: 200,
-            success: true
-          });
+          const forwardedFor = req.headers['x-forwarded-for'];
+          const ip = forwardedFor ? forwardedFor.split(',')[0].trim() :
+                     req.headers['x-vercel-forwarded-for'] ||
+                     req.headers['x-real-ip'] ||
+                     req.socket?.remoteAddress ||
+                     null;
 
-          // Add credit info to response
-          const response = buildResponse({
-            valid: true,
-            reason: 'VALID',
-            message: 'License validated successfully.',
-            deviceId: deviceId,
-            token: token
-          });
-
-          // Add credit info if available
-          if (creditResult.success) {
-            response.credits = {
-              remaining: creditResult.creditsRemaining,
-              used: creditResult.creditsUsed,
-              totalUsed: creditResult.totalUsed
-            };
-          }
-
-          return res.json(response);
-        } catch (trackError) {
-          console.error('[Validate API] Credit tracking error:', trackError);
-          // Still allow validation if tracking fails
-          return res.json(buildResponse({
-            valid: true,
-            reason: 'VALID',
-            message: 'License validated successfully.',
-            deviceId: deviceId,
-            token: token
-          }));
+          await supabase
+            .from('device_bindings')
+            .update({
+              last_seen: new Date().toISOString(),
+              last_ip: ip,
+              last_user_agent: req.headers['user-agent'] || null,
+              last_endpoint: 'validate'
+            })
+            .eq('license_key', key);
+        } catch (logError) {
+          console.error('[Validate API] Tracking update error:', logError);
         }
+
+        return res.json(buildResponse({
+          valid: true,
+          reason: 'VALID',
+          message: 'License validated successfully.',
+          deviceId: deviceId,
+          token: token
+        }));
       } else {
         return res.json({
           valid: false,
@@ -204,11 +194,7 @@ export default async function handler(req, res) {
           last_seen: new Date().toISOString(),
           last_ip: req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || null,
           last_user_agent: req.headers['user-agent'] || null,
-          last_endpoint: 'validate',
-          // Credit tracking fields (new devices start with default credits from DB migration)
-          total_credits_used: 0,
-          credits_remaining: 10000,
-          last_credit_usage: new Date().toISOString()
+          last_endpoint: 'validate'
         });
 
       if (insertError) {
@@ -217,28 +203,13 @@ export default async function handler(req, res) {
 
       const token = await generateToken(key, deviceId);
 
-      // Log first validation activity
-      try {
-        await trackApiUsage(key, deviceId, 'validate', req, {
-          statusCode: 200,
-          success: true
-        });
-      } catch (trackError) {
-        console.error('[Validate API] Credit tracking error:', trackError);
-      }
-
       return res.json(buildResponse({
         valid: true,
         reason: 'VALID',
         message: 'License validated successfully. Device registered.',
         deviceId: deviceId,
         newDevice: true,
-        token: token,
-        credits: {
-          remaining: 9999,  // 10000 - 1 for validation
-          used: 1,
-          totalUsed: 1
-        }
+        token: token
       }));
     }
 

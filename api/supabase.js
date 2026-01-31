@@ -2,12 +2,10 @@
 // Replaces Google Sheets as the primary data source
 // JWT authentication required
 // Request signing required for replay attack prevention
-// Credit tracking enabled
 
 const { createClient } = require('@supabase/supabase-js');
 const { jwtVerify } = require('jose');
 const crypto = require('crypto');
-const { trackApiUsage } = require('../helpers/credits.js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
@@ -281,28 +279,6 @@ module.exports = async function handler(req, res) {
     return res.status(429).json({ error: 'Too many requests - please try again later' });
   }
 
-  // ============================================
-  // CREDIT CHECK (before expensive operation)
-  // ============================================
-  const endpoint = req.query.since ? 'supabase/recent' : 'supabase';
-  const creditCheck = await trackApiUsage(
-    payload.licenseKey,
-    payload.deviceId,
-    endpoint,
-    req,
-    { statusCode: 200, success: true }
-  );
-
-  if (!creditCheck.success) {
-    console.warn('[Supabase API] Credit check failed:', creditCheck.error);
-    return res.status(402).json({
-      error: 'Insufficient credits',
-      message: creditCheck.error,
-      endpoint: endpoint,
-      creditsNeeded: endpoint === 'supabase' ? 20 : 10
-    });
-  }
-
   // Update device_bindings last_seen (don't fail if logging errors)
   try {
     // Get IP from Vercel headers
@@ -447,11 +423,6 @@ module.exports = async function handler(req, res) {
       success: true,
       admins: admins,
       tokens: allTokens,
-      credits: {
-        remaining: creditCheck.creditsRemaining,
-        used: creditCheck.creditsUsed,
-        totalUsed: creditCheck.totalUsed
-      },
       failedTokens: [],  // Empty - Supabase has one tokens table, no separate failed list
       comments: [],      // Empty - comments removed
       dailyStats: []     // Empty - daily stats removed
