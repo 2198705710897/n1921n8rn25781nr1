@@ -137,7 +137,9 @@ export default async function handler(req, res) {
           ...baseResponse,
           updateNotification: {
             active: true,
-            message: notification.message
+            message: notification.message,
+            downloadUrl: notification.download_url || null,
+            version: notification.updated_at || notification.created_at || Date.now()
           }
         };
       }
