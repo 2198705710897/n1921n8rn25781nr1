@@ -14,6 +14,25 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const secretKey = new TextEncoder().encode(JWT_SECRET);
 
+// Compare two semantic versions (e.g., "1.2.3" vs "1.3.0")
+// Returns: -1 if v1 < v2, 0 if equal, 1 if v1 > v2
+function compareVersions(v1, v2) {
+  if (!v1 || !v2) return 0;
+  
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+  
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const part1 = parts1[i] || 0;
+    const part2 = parts2[i] || 0;
+    
+    if (part1 < part2) return -1;
+    if (part1 > part2) return 1;
+  }
+  
+  return 0;
+}
+
 async function generateToken(licenseKey, deviceId) {
   const token = await new SignJWT({
     licenseKey: licenseKey.substring(0, 8) + '...',
@@ -54,7 +73,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { key, deviceId } = req.query;
+  const { key, deviceId, version } = req.query;
 
   if (masterKillSwitch) {
     return res.json({
@@ -70,6 +89,42 @@ export default async function handler(req, res) {
       reason: 'INVALID_REQUEST',
       message: 'License key and device ID are required'
     });
+  }
+
+  // Check for version update requirements
+  let versionUpdateRequired = false;
+  let versionUpdateInfo = null;
+  
+  try {
+    const { data: versionData, error: versionError } = await supabase
+      .from('extension_versions')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!versionError && versionData) {
+      const currentVersion = version || '1.0';
+      const minimumVersion = versionData.minimum_version || '1.0';
+      
+      // Simple version comparison (assumes semver format: x.y.z)
+      if (compareVersions(currentVersion, minimumVersion) < 0) {
+        versionUpdateRequired = true;
+        versionUpdateInfo = {
+          active: true,
+          message: `Update required. Your version (${currentVersion}) is outdated. Please update to version ${versionData.version} or later.`,
+          downloadUrl: versionData.download_url,
+          currentVersion: currentVersion,
+          minimumVersion: minimumVersion,
+          latestVersion: versionData.version
+        };
+        console.log(`[Validate API] Version update required: ${currentVersion} < ${minimumVersion}`);
+      }
+    }
+  } catch (versionCheckError) {
+    console.error('[Validate API] Version check error:', versionCheckError);
+    // Continue with validation even if version check fails
   }
 
   try {
@@ -132,6 +187,16 @@ export default async function handler(req, res) {
 
     // Helper function to build response with optional notification
     function buildResponse(baseResponse) {
+      // Version update takes priority over manual notification
+      if (versionUpdateRequired && versionUpdateInfo) {
+        return {
+          ...baseResponse,
+          valid: false, // Force invalid if update required
+          reason: 'UPDATE_REQUIRED',
+          updateNotification: versionUpdateInfo
+        };
+      }
+      
       if (notification && notification.is_active) {
         return {
           ...baseResponse,
