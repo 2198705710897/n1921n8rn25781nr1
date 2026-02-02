@@ -95,6 +95,8 @@ export default async function handler(req, res) {
   let versionUpdateRequired = false;
   let versionUpdateInfo = null;
   
+  console.log(`[Validate API] Version check - Received version: ${version}`);
+  
   try {
     const { data: versionData, error: versionError } = await supabase
       .from('extension_versions')
@@ -104,12 +106,17 @@ export default async function handler(req, res) {
       .limit(1)
       .single();
 
+    console.log(`[Validate API] Database version data:`, versionData, 'Error:', versionError);
+
     if (!versionError && versionData) {
       const currentVersion = version || '1.0';
       const minimumVersion = versionData.minimum_version || '1.0';
+      const compareResult = compareVersions(currentVersion, minimumVersion);
+      
+      console.log(`[Validate API] Comparing versions: current=${currentVersion}, minimum=${minimumVersion}, result=${compareResult} (-1=needs update, 0=same, 1=ok)`);
       
       // Simple version comparison (assumes semver format: x.y.z)
-      if (compareVersions(currentVersion, minimumVersion) < 0) {
+      if (compareResult < 0) {
         versionUpdateRequired = true;
         versionUpdateInfo = {
           active: true,
@@ -119,8 +126,12 @@ export default async function handler(req, res) {
           minimumVersion: minimumVersion,
           latestVersion: versionData.version
         };
-        console.log(`[Validate API] Version update required: ${currentVersion} < ${minimumVersion}`);
+        console.log(`[Validate API] ❌ Version update REQUIRED: ${currentVersion} < ${minimumVersion}`);
+      } else {
+        console.log(`[Validate API] ✅ Version OK: ${currentVersion} >= ${minimumVersion}`);
       }
+    } else {
+      console.log(`[Validate API] No active version found in database`);
     }
   } catch (versionCheckError) {
     console.error('[Validate API] Version check error:', versionCheckError);
@@ -168,44 +179,14 @@ export default async function handler(req, res) {
       throw fetchError;
     }
 
-    // Check for update notifications
-    console.log('[Validate API] Fetching update notifications...');
-    const { data: notification, error: notificationError } = await supabase
-      .from('update_notifications')
-      .select('*')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    console.log('[Validate API] Notification result:', notification);
-    console.log('[Validate API] Notification error:', notificationError);
-
-    if (notificationError && notificationError.code !== 'PGRST116') {
-      console.error('[Validate API] Notification fetch error:', notificationError);
-    }
-
-    // Helper function to build response with optional notification
+    // Helper function to build response with version update notification
     function buildResponse(baseResponse) {
-      // Version update takes priority over manual notification
       if (versionUpdateRequired && versionUpdateInfo) {
         return {
           ...baseResponse,
           valid: false, // Force invalid if update required
           reason: 'UPDATE_REQUIRED',
           updateNotification: versionUpdateInfo
-        };
-      }
-      
-      if (notification && notification.is_active) {
-        return {
-          ...baseResponse,
-          updateNotification: {
-            active: true,
-            message: notification.message,
-            downloadUrl: notification.download_url || null,
-            version: notification.updated_at || notification.created_at || Date.now()
-          }
         };
       }
       return baseResponse;
