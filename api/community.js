@@ -63,32 +63,46 @@ export default async function handler(req, res) {
              null;
   const userAgent = req.headers['user-agent'] || null;
 
-  // Update device_bindings last_seen (don't fail if logging errors)
+  // Update device_bindings last_seen and log API request
   try {
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-    await supabase
+    // First, get the device binding to find the full license key
+    const { data: binding, error: bindingError } = await supabase
       .from('device_bindings')
-      .update({
-        last_seen: new Date().toISOString(),
-        last_ip: ip,
-        last_user_agent: userAgent,
-        last_endpoint: 'community'
-      })
-      .eq('device_id', payload.deviceId);
+      .select('license_key')
+      .eq('device_id', payload.deviceId)
+      .single();
 
-    // Log API request with credits (20 credits per request)
-    await supabase
-      .from('api_requests')
-      .insert({
-        license_key: payload.licenseKey,
-        device_id: payload.deviceId,
-        endpoint: 'community',
-        ip_address: ip,
-        user_agent: userAgent,
-        credits_used: 20
-      });
+    if (bindingError || !binding) {
+      console.error('[Community API] Could not find device binding:', bindingError);
+    } else {
+      const fullLicenseKey = binding.license_key;
+
+      // Update device_bindings last_seen
+      await supabase
+        .from('device_bindings')
+        .update({
+          last_seen: new Date().toISOString(),
+          last_ip: ip,
+          last_user_agent: userAgent,
+          last_endpoint: 'community'
+        })
+        .eq('device_id', payload.deviceId);
+
+      // Log API request with credits (20 credits per request)
+      await supabase
+        .from('api_requests')
+        .insert({
+          license_key: fullLicenseKey,
+          device_id: payload.deviceId,
+          endpoint: 'community',
+          ip_address: ip,
+          user_agent: userAgent,
+          credits_used: 20
+        });
+    }
   } catch (logError) {
     console.error('[Community API] Tracking error:', logError);
   }
